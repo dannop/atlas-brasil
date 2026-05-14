@@ -7,6 +7,7 @@ import Spinner from '@/components/atoms/Spinner';
 import { useMap } from '@/context/MapContext';
 import { useMalhaBrasil } from '@/hooks/api/geo/useMalhaBrasil';
 import { useMalhaMunicipiosByUF } from '@/hooks/api/geo/useMalhaMunicipiosByUF';
+import { useListUFs } from '@/hooks/api/ibge/useListUFs';
 import { tokens } from '@/util/tokens';
 
 const BR_BOUNDS: L.LatLngBoundsExpression = [
@@ -71,6 +72,13 @@ const MapaBrasil = () => {
     const { data: malhaMunicipios, isLoading: loadingMunicipios } = useMalhaMunicipiosByUF(
         selectedUF?.id ?? null,
     );
+    const { data: ufs } = useListUFs();
+
+    const ufLookup = useMemo(() => {
+        const map = new Map<number, { sigla: string; nome: string }>();
+        ufs?.forEach((uf) => map.set(uf.id, { sigla: uf.sigla, nome: uf.nome }));
+        return map;
+    }, [ufs]);
 
     useEffect(() => {
         if (!selectedUF) return;
@@ -83,7 +91,10 @@ const MapaBrasil = () => {
 
     const layerRef = useRef<L.GeoJSON | null>(null);
 
-    const ufsKey = useMemo(() => `ufs-${malhaBrasil ? 'ready' : 'empty'}`, [malhaBrasil]);
+    const ufsKey = useMemo(
+        () => `ufs-${malhaBrasil ? 'malha' : 'no-malha'}-${ufLookup.size}`,
+        [malhaBrasil, ufLookup.size],
+    );
     const municipiosKey = useMemo(
         () => `municipios-${selectedUF?.id ?? 'none'}`,
         [selectedUF?.id],
@@ -94,8 +105,14 @@ const MapaBrasil = () => {
             const path = layer as L.Path;
             const props = (feature.properties ?? {}) as Record<string, unknown>;
             const id = Number(props.codarea);
-            const sigla = (props.SIGLA_UF as string) ?? (props.sigla as string) ?? '';
-            const nome = (props.NOME as string) ?? (props.nome as string) ?? sigla;
+            const fromLookup = ufLookup.get(id);
+            const sigla =
+                fromLookup?.sigla ??
+                (props.SIGLA_UF as string) ??
+                (props.sigla as string) ??
+                '';
+            const nome =
+                fromLookup?.nome ?? (props.NOME as string) ?? (props.nome as string) ?? sigla;
 
             path.on({
                 mouseover: () => path.setStyle(ufHoverStyle),
@@ -111,7 +128,7 @@ const MapaBrasil = () => {
                 className: 'atlas-tooltip',
             });
         },
-        [selectUF],
+        [selectUF, ufLookup],
     );
 
     const onEachMunicipio = useCallback(
